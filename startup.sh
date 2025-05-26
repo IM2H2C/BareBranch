@@ -1,37 +1,51 @@
-#!/usr/bin/env bash
+#!/bin/ash
+# Quiet Paper Installation Script + Bare Branch startup.sh fetch + auto-start
+# Server files live in /mnt/server
 set -euo pipefail
-bold="$(tput bold)"; normal="$(tput sgr0)"
-blue="$(tput setaf 6)"; green="$(tput setaf 2)"; gray="$(tput setaf 8)"
 
-clear
+PROJECT=paper
 
-if command -v figlet >/dev/null 2>&1; then
-  printf "${blue}${bold}"
-  figlet -w 100 "BARE BRANCH"
-  printf "${normal}\n"
+# ── helper: silent curl (shows errors only) ───────────────────────────────
+curlq() { curl -sSL --fail --show-error "$@"; }
+
+# ── resolve Paper download URL ────────────────────────────────────────────
+if [ -n "${DL_PATH:-}" ]; then
+    DOWNLOAD_URL="$(eval echo "$(echo "${DL_PATH}" | sed -e 's/{{/${/g' -e 's/}}/}/g')")"
 else
-  # Fallback ASCII art (generated with Figlet “standard” font)
-  printf "${blue}${bold}"
-  cat <<'BANNER'
-.______   .______       _______   ___________    ____ 
-|   _  \  |   _  \     |       \ |   ____\   \  /   / 
-|  |_)  | |  |_)  |    |  .--.  ||  |__   \   \/   /  
-|   _  <  |   _  <     |  |  |  ||   __|   \      /   
-|  |_)  | |  |_)  |  __|  '--'  ||  |____   \    /    
-|______/  |______/  (__)_______/ |_______|   \__/                                                                
-BANNER
-  printf "${normal}\n"
+    API="https://api.papermc.io/v2/projects/${PROJECT}"
+    VERSIONS_JSON="$(curlq "${API}")"
+    LATEST_VERSION="$(echo "${VERSIONS_JSON}" | jq -r '.versions[-1]')"
+
+    if ! echo "${VERSIONS_JSON}" | jq -e --arg v "${MINECRAFT_VERSION}" '.versions[] | select(. == $v)' >/dev/null; then
+        MINECRAFT_VERSION="${LATEST_VERSION}"
+    fi
+
+    BUILDS_JSON="$(curlq "${API}/versions/${MINECRAFT_VERSION}")"
+    LATEST_BUILD="$(echo "${BUILDS_JSON}" | jq -r '.builds[-1]')"
+
+    if ! echo "${BUILDS_JSON}" | jq -e --arg b "${BUILD_NUMBER}" '.builds[] | select(.|tostring == $b)' >/dev/null; then
+        BUILD_NUMBER="${LATEST_BUILD}"
+    fi
+
+    JAR_NAME="${PROJECT}-${MINECRAFT_VERSION}-${BUILD_NUMBER}.jar"
+    DOWNLOAD_URL="${API}/versions/${MINECRAFT_VERSION}/builds/${BUILD_NUMBER}/downloads/${JAR_NAME}"
 fi
 
-printf "${green}${bold}SERVER HOSTED BY BARE BRANCH${normal}  •  ${gray}Starting your server…${normal}\n\n"
+cd /mnt/server
 
-JAVA_FLAGS=(
-  -Xms128M
-  -XX:MaxRAMPercentage=95.0
-  -Dterminal.jline=false
-  -Dterminal.ansi=true
-)
+# ── Paper jar download ────────────────────────────────────────────────────
+[ -f "${SERVER_JARFILE}" ] && mv "${SERVER_JARFILE}" "${SERVER_JARFILE}.old"
+echo "Downloading Paper ${MINECRAFT_VERSION}-${BUILD_NUMBER} …"
+curlq -o "${SERVER_JARFILE}" "${DOWNLOAD_URL}"
 
-: "${SERVER_JARFILE:=server.jar}"
+# ── server.properties (only if absent) ────────────────────────────────────
+[ -f server.properties ] || curlq -o server.properties \
+    https://raw.githubusercontent.com/parkervcp/eggs/master/minecraft/java/server.properties
 
-exec java "${JAVA_FLAGS[@]}" -jar "$SERVER_JARFILE"
+# ── Bare Branch startup.sh (read + exec only) ─────────────────────────────
+echo "Fetching Bare Branch startup.sh …"
+curlq -o startup.sh https://raw.githubusercontent.com/IM2H2C/BareBranch/main/startup.sh
+chmod 555 startup.sh
+
+echo "Install complete. Launching server …"
+exec ./startup.sh
