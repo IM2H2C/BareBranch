@@ -1,68 +1,33 @@
-#!/bin/ash
-# Paper Installation Script (+ Bare Branch startup.sh fetch)
-#
-# Server Files: /mnt/server
-PROJECT=paper
-
-if [ -n "${DL_PATH}" ]; then
-    echo -e "Using supplied download url: ${DL_PATH}"
-    DOWNLOAD_URL=`eval echo $(echo ${DL_PATH} | sed -e 's/{{/${/g' -e 's/}}/}/g')`
-else
-    VER_EXISTS=`curl -s https://api.papermc.io/v2/projects/${PROJECT} \
-        | jq -r --arg VERSION $MINECRAFT_VERSION '.versions[] | contains($VERSION)' \
-        | grep -m1 true`
-    LATEST_VERSION=`curl -s https://api.papermc.io/v2/projects/${PROJECT} \
-        | jq -r '.versions' | jq -r '.[-1]'`
-
-    if [ "${VER_EXISTS}" = "true" ]; then
-        echo -e "Version is valid. Using version ${MINECRAFT_VERSION}"
-    else
-        echo -e "Specified version not found. Defaulting to latest ${PROJECT} version"
-        MINECRAFT_VERSION=${LATEST_VERSION}
-    fi
-
-    BUILD_EXISTS=`curl -s https://api.papermc.io/v2/projects/${PROJECT}/versions/${MINECRAFT_VERSION} \
-        | jq -r --arg BUILD ${BUILD_NUMBER} '.builds[] | tostring | contains($BUILD)' \
-        | grep -m1 true`
-    LATEST_BUILD=`curl -s https://api.papermc.io/v2/projects/${PROJECT}/versions/${MINECRAFT_VERSION} \
-        | jq -r '.builds' | jq -r '.[-1]'`
-
-    if [ "${BUILD_EXISTS}" = "true" ]; then
-        echo -e "Build is valid for version ${MINECRAFT_VERSION}. Using build ${BUILD_NUMBER}"
-    else
-        echo -e "Using latest ${PROJECT} build for version ${MINECRAFT_VERSION}"
-        BUILD_NUMBER=${LATEST_BUILD}
-    fi
-
-    JAR_NAME=${PROJECT}-${MINECRAFT_VERSION}-${BUILD_NUMBER}.jar
-
-    echo "Version being downloaded"
-    echo -e "MC Version: ${MINECRAFT_VERSION}"
-    echo -e "Build: ${BUILD_NUMBER}"
-    echo -e "JAR Name of Build: ${JAR_NAME}"
-    DOWNLOAD_URL=https://api.papermc.io/v2/projects/${PROJECT}/versions/${MINECRAFT_VERSION}/builds/${BUILD_NUMBER}/downloads/${JAR_NAME}
-fi
-
-cd /mnt/server
-
-echo -e "Running curl -o ${SERVER_JARFILE} ${DOWNLOAD_URL}"
-
-if [ -f "${SERVER_JARFILE}" ]; then
-    mv "${SERVER_JARFILE}" "${SERVER_JARFILE}.old"
-fi
-
-curl -o "${SERVER_JARFILE}" "${DOWNLOAD_URL}"
-
-if [ ! -f server.properties ]; then
-    echo -e "Downloading MC server.properties"
-    curl -o server.properties https://raw.githubusercontent.com/parkervcp/eggs/master/minecraft/java/server.properties
-fi
-
+#!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────
-#  NEW SECTION: Download Bare Branch startup.sh (read+exec)
+#  Bare Branch Minecraft startup script
 # ──────────────────────────────────────────────────────────
-echo -e "Downloading Bare Branch startup.sh"
-curl -L -o startup.sh https://raw.githubusercontent.com/IM2H2C/BareBranch/main/startup.sh
-chmod a-w startup.sh
-chmod a+x startup.sh
-echo -e "[BB.DEV] Your server has been installed."
+set -euo pipefail
+
+# ── Fancy banner ──────────────────────────────────────────
+bold="$(tput bold)"; normal="$(tput sgr0)"
+blue="$(tput setaf 6)"; green="$(tput setaf 2)"; gray="$(tput setaf 8)"
+
+clear
+printf "${blue}${bold}"
+cat <<'BANNER'
+ ____                  ____                      _     
+| __ )  ___  _ __ ___ | __ )  __ _ ___  ___ _ __| |__  
+|  _ \ / _ \| '_ ` _ \|  _ \ / _` / __|/ _ \ '__| '_ \ 
+| |_) | (_) | | | | | | |_) | (_| \__ \  __/ |  | |_) |
+|____/ \___/|_| |_| |_|____/ \__,_|___/\___|_|  |_.__/ 
+BANNER
+printf "${normal}\n"
+printf "${green}${bold}Server hosted by Bare Branch${normal}  •  ${gray}Starting your server…${normal}\n\n"
+
+# ── Launch Minecraft server ──────────────────────────────
+JAVA_FLAGS=(
+  -Xms128M
+  -XX:MaxRAMPercentage=95.0
+  -Dterminal.jline=false
+  -Dterminal.ansi=true
+)
+
+: "${SERVER_JARFILE:=server.jar}"
+
+exec java "${JAVA_FLAGS[@]}" -jar "$SERVER_JARFILE"
